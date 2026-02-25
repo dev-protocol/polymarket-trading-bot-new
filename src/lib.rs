@@ -45,10 +45,9 @@
 //! # Example
 //!
 //! ```rust,no_run
-//! use route_ratelimit::{RateLimitMiddleware, ThrottleBehavior};
+//! use route_ratelimit::{Method, RateLimitMiddleware, ThrottleBehavior};
 //! use reqwest_middleware::ClientBuilder;
 //! use std::time::Duration;
-//! use http::Method;
 //!
 //! # async fn example() {
 //! let middleware = RateLimitMiddleware::builder()
@@ -84,6 +83,7 @@ mod types;
 // Public re-exports
 pub use builder::{HostBuilder, HostRouteBuilder, RateLimitBuilder, RouteBuilder};
 pub use error::RateLimitError;
+pub use http::Method;
 pub use middleware::RateLimitMiddleware;
 pub use types::{RateLimit, Route, ThrottleBehavior};
 

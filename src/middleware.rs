@@ -59,30 +59,48 @@ impl RateLimitMiddleware {
         let method = req.method();
         let path = url.path();
 
-        'outer: loop {
+        // Track position to avoid double-counting tokens from already-passed limits.
+        // On delay retry, we resume from the exact limit that failed rather than
+        // restarting from the beginning (which would re-consume tokens).
+        let mut route_idx = 0;
+        let mut limit_start = 0;
+
+        while route_idx < self.routes.len() {
             let now = self.now_nanos();
+            let route = &self.routes[route_idx];
 
-            for (route_index, route) in self.routes.iter().enumerate() {
-                if !route.matches_extracted(host, method, path) {
-                    continue;
-                }
-
-                let offset = self.route_offsets[route_index];
-                for (limit_index, limit) in route.limits.iter().enumerate() {
-                    let state = &self.states[offset + limit_index];
-                    let result =
-                        state.try_acquire(now, limit.emission_interval_nanos, limit.window_nanos);
-
-                    if let Err(wait_duration) = result {
-                        self.handle_rate_limited(route, wait_duration).await?;
-                        continue 'outer;
-                    }
-                }
+            if !route.matches_extracted(host, method, path) {
+                route_idx += 1;
+                limit_start = 0;
+                continue;
             }
 
-            // All limits passed
-            break Ok(());
+            let offset = self.route_offsets[route_idx];
+            let mut limit_idx = limit_start;
+            let mut all_passed = true;
+
+            while limit_idx < route.limits.len() {
+                let limit = &route.limits[limit_idx];
+                let state = &self.states[offset + limit_idx];
+
+                if let Err(wait_duration) =
+                    state.try_acquire(now, limit.emission_interval_nanos, limit.window_nanos)
+                {
+                    self.handle_rate_limited(route, wait_duration).await?;
+                    limit_start = limit_idx; // retry from this limit
+                    all_passed = false;
+                    break;
+                }
+                limit_idx += 1;
+            }
+
+            if all_passed {
+                route_idx += 1;
+                limit_start = 0;
+            }
         }
+
+        Ok(())
     }
 
     #[cold]

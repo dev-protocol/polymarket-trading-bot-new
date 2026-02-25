@@ -695,3 +695,48 @@ async fn test_method_matching_put_patch_head_options() {
         "HEAD should still not be rate limited"
     );
 }
+
+// =============================================================================
+// Jitter Tests
+// =============================================================================
+
+#[tokio::test]
+async fn test_delay_includes_jitter() {
+    let server = MockServer::start().await;
+    Mock::given(any())
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+
+    // 1 burst request per 200ms window → emission interval = 200ms
+    let middleware = RateLimitMiddleware::builder()
+        .route(|r| r.limit(1, Duration::from_millis(200)))
+        .build();
+
+    let client = ClientBuilder::new(reqwest::Client::new())
+        .with(middleware)
+        .build();
+
+    let url = format!("{}/test", server.uri());
+
+    let start = Instant::now();
+
+    // 1st request: immediate (burst). 2nd and 3rd: delayed by ~200ms + jitter each.
+    for _ in 0..3 {
+        client.get(&url).send().await.unwrap();
+    }
+
+    let elapsed = start.elapsed();
+
+    // Without jitter, 2 delays × 200ms = 400ms minimum.
+    // With 0-50% jitter, expected range is ~400-600ms.
+    assert!(
+        elapsed >= Duration::from_millis(400),
+        "Should have waited at least the bare emission intervals: {elapsed:?}"
+    );
+    // Upper bound: 2 delays × (200ms + 100ms max jitter) = 600ms, plus some slack
+    assert!(
+        elapsed < Duration::from_millis(900),
+        "Delay with jitter should not exceed reasonable upper bound: {elapsed:?}"
+    );
+}

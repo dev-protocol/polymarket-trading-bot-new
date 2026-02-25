@@ -18,9 +18,9 @@ pub enum ThrottleBehavior {
 #[derive(Debug, Clone)]
 pub struct RateLimit {
     /// Maximum number of requests allowed in the window.
-    pub requests: u32,
+    pub(crate) requests: u32,
     /// Time window for the rate limit.
-    pub window: Duration,
+    pub(crate) window: Duration,
     /// Precomputed emission interval in nanoseconds (window / requests).
     pub(crate) emission_interval_nanos: u64,
     /// Precomputed window duration in nanoseconds.
@@ -53,6 +53,18 @@ impl RateLimit {
         }
     }
 
+    /// Returns the maximum number of requests allowed in the window.
+    #[must_use]
+    pub fn requests(&self) -> u32 {
+        self.requests
+    }
+
+    /// Returns the time window for the rate limit.
+    #[must_use]
+    pub fn window(&self) -> Duration {
+        self.window
+    }
+
     /// Calculate the emission interval (time between requests).
     #[cfg(test)]
     pub(crate) fn emission_interval(&self) -> Duration {
@@ -60,11 +72,19 @@ impl RateLimit {
     }
 }
 
+impl PartialEq for RateLimit {
+    fn eq(&self, other: &Self) -> bool {
+        self.requests == other.requests && self.window == other.window
+    }
+}
+
+impl Eq for RateLimit {}
+
 /// A route definition that matches requests and applies rate limits.
 ///
 /// Routes are constructed via [`RouteBuilder::build`](crate::RouteBuilder::build) or the
 /// closure-based [`RateLimitBuilder::route`](crate::RateLimitBuilder::route) API.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Route {
     /// Optional host to match (e.g., "api.example.com").
     pub(crate) host: Option<String>,
