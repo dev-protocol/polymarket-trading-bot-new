@@ -110,10 +110,10 @@ impl Route {
         }
 
         // Check method
-        if let Some(ref method) = self.method {
-            if req_method != method {
-                return false;
-            }
+        if let Some(ref method) = self.method
+            && req_method != method
+        {
+            return false;
         }
 
         // Check path prefix using segment boundaries:

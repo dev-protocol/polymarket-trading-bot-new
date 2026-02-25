@@ -6,7 +6,6 @@ use rand::Rng;
 use reqwest::{Request, Response};
 use reqwest_middleware::{Middleware, Next, Result as MiddlewareResult};
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
 
@@ -49,59 +48,6 @@ impl RateLimitMiddleware {
         d.as_secs()
             .saturating_mul(1_000_000_000)
             .saturating_add(d.subsec_nanos() as u64)
-    }
-
-    /// Reset stale rate limit state entries that haven't been accessed recently.
-    ///
-    /// An entry is considered stale when its theoretical arrival time (TAT) has
-    /// recovered past twice the limit window, meaning the burst capacity has been
-    /// fully recovered for an extended period.
-    ///
-    /// Rate limit state is stored in a fixed-size pre-allocated array, so memory
-    /// usage is constant regardless of traffic patterns. This method resets stale
-    /// entries to their initial state, which can improve [`state_count`](Self::state_count)
-    /// accuracy.
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// use route_ratelimit::RateLimitMiddleware;
-    /// use std::time::Duration;
-    ///
-    /// # async fn example() {
-    /// let middleware = RateLimitMiddleware::builder()
-    ///     .route(|r| r.limit(100, Duration::from_secs(10)))
-    ///     .build();
-    ///
-    /// // Call periodically to reset stale entries
-    /// middleware.cleanup();
-    /// # }
-    /// ```
-    pub fn cleanup(&self) {
-        let now = self.now_nanos();
-        for (route_index, route) in self.routes.iter().enumerate() {
-            for (limit_index, limit) in route.limits.iter().enumerate() {
-                let state = &self.states[self.route_offsets[route_index] + limit_index];
-                let tat = state.tat(Ordering::Acquire);
-                if tat > 0
-                    && tat <= now.saturating_sub(limit.window_nanos.saturating_mul(2))
-                {
-                    state.reset();
-                }
-            }
-        }
-    }
-
-    /// Returns the number of active rate limit state entries.
-    ///
-    /// An entry is considered active if it has been accessed at least once
-    /// and has not been reset by [`cleanup`](Self::cleanup).
-    #[must_use]
-    pub fn state_count(&self) -> usize {
-        self.states
-            .iter()
-            .filter(|s| s.tat(Ordering::Relaxed) > 0)
-            .count()
     }
 
     /// Check and apply all rate limits for a request.
