@@ -1,10 +1,10 @@
 //! Builder API for configuring the rate limiting middleware.
 
-use dashmap::DashMap;
 use http::Method;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use crate::gcra::GcraState;
 use crate::middleware::RateLimitMiddleware;
 use crate::types::{RateLimit, Route, ThrottleBehavior};
 
@@ -113,11 +113,20 @@ impl RateLimitBuilder {
         #[cfg(feature = "tracing")]
         self.warn_catch_all_route_order();
 
-        let total_limits: usize = self.routes.iter().map(|r| r.limits.len()).sum();
+        // Precompute flat offsets for each route's state entries
+        let mut offsets = Vec::with_capacity(self.routes.len());
+        let mut total = 0usize;
+        for route in &self.routes {
+            offsets.push(total);
+            total += route.limits.len();
+        }
+
+        let states: Vec<GcraState> = (0..total).map(|_| GcraState::new()).collect();
 
         RateLimitMiddleware {
-            routes: Arc::new(self.routes),
-            state: Arc::new(DashMap::with_capacity(total_limits)),
+            routes: Arc::from(self.routes),
+            states: Arc::from(states),
+            route_offsets: Arc::from(offsets),
             start_instant: Instant::now(),
         }
     }

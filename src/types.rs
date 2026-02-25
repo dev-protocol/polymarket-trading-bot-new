@@ -1,7 +1,6 @@
 //! Core types for rate limit configuration.
 
 use http::Method;
-use reqwest::Request;
 use std::time::Duration;
 
 /// Behavior when a rate limit is exceeded.
@@ -86,67 +85,50 @@ impl Route {
     }
 
     /// Check if this route matches a request.
+    #[cfg(test)]
     #[inline]
-    pub(crate) fn matches(&self, req: &Request) -> bool {
+    pub(crate) fn matches(&self, req: &reqwest::Request) -> bool {
+        self.matches_extracted(req.url().host_str(), req.method(), req.url().path())
+    }
+
+    /// Check if this route matches pre-extracted URL components.
+    ///
+    /// This avoids redundant URL component extraction when checking multiple routes.
+    #[inline]
+    pub(crate) fn matches_extracted(
+        &self,
+        req_host: Option<&str>,
+        req_method: &Method,
+        req_path: &str,
+    ) -> bool {
         // Check host
         if let Some(ref host) = self.host {
-            if let Some(req_host) = req.url().host_str() {
-                if req_host != host {
-                    return false;
-                }
-            } else {
-                return false;
+            match req_host {
+                Some(h) if h == host => {}
+                _ => return false,
             }
         }
 
         // Check method
         if let Some(ref method) = self.method {
-            if req.method() != method {
+            if req_method != method {
                 return false;
             }
         }
 
-        // Check path prefix
-        // Path prefix matching uses path segment boundaries:
+        // Check path prefix using segment boundaries:
         // - "/order" matches "/order", "/order/", "/order/123"
         // - "/order" does NOT match "/orders" or "/order-test"
         if !self.path_prefix.is_empty() {
-            let path = req.url().path();
-            if !path.starts_with(&self.path_prefix) {
+            if !req_path.starts_with(&self.path_prefix) {
                 return false;
             }
-            // Ensure we're matching at a path segment boundary
-            let remaining = &path[self.path_prefix.len()..];
+            let remaining = &req_path[self.path_prefix.len()..];
             if !remaining.is_empty() && !remaining.starts_with('/') {
                 return false;
             }
         }
 
         true
-    }
-}
-
-/// Unique key for a route's rate limit state.
-///
-/// Packed as a single `u64`: upper 32 bits = route_index, lower 32 bits = limit_index.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct RouteKey(u64);
-
-impl RouteKey {
-    #[inline]
-    pub fn new(route_index: usize, limit_index: usize) -> Self {
-        debug_assert!(route_index <= u32::MAX as usize);
-        debug_assert!(limit_index <= u32::MAX as usize);
-        Self((route_index as u64) << 32 | (limit_index as u64))
-    }
-
-    #[inline]
-    pub fn route_index(self) -> usize {
-        (self.0 >> 32) as usize
-    }
-
-    #[inline]
-    pub fn limit_index(self) -> usize {
-        (self.0 & 0xFFFF_FFFF) as usize
     }
 }

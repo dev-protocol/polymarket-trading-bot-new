@@ -17,7 +17,6 @@ include = ["src/**/*", "Cargo.toml", "LICENSE", "README.md", "CHANGELOG.md"]
 reqwest = { version = "0.12", default-features = false }
 reqwest-middleware = "0.4"
 http = "1"
-dashmap = "6"
 async-trait = "0.1"
 tokio = { version = "1", features = ["time"] }
 thiserror = "2"
@@ -33,6 +32,10 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
 wiremock = "0.6"
 reqwest = { version = "0.12", features = ["rustls-tls"] }
 criterion = { version = "0.5", features = ["html_reports"] }
+
+[profile.bench]
+lto = "thin"
+codegen-units = 1
 
 [[bench]]
 name = "throughput"

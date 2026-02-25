@@ -31,6 +31,12 @@ impl GcraState {
         self.tat_nanos.load(ordering)
     }
 
+    /// Reset the state to its initial value (no pending requests).
+    #[inline]
+    pub fn reset(&self) {
+        self.tat_nanos.store(0, Ordering::Release);
+    }
+
     /// Try to acquire a token. Returns Ok(()) if allowed, or Err(wait_duration) if rate limited.
     #[inline]
     pub fn try_acquire(

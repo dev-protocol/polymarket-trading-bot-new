@@ -1,6 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use http::Method;
 use route_ratelimit::{RateLimitMiddleware, ThrottleBehavior};
+use std::sync::Arc;
 use std::time::Duration;
 
 /// Benchmark the full check_and_apply_limits path with varying route counts.
@@ -144,10 +145,66 @@ fn bench_stacked_limits(c: &mut Criterion) {
     group.finish();
 }
 
+/// Benchmark concurrent throughput with multiple tasks hitting the same middleware.
+fn bench_concurrent(c: &mut Criterion) {
+    let mut group = c.benchmark_group("concurrent");
+    group.sample_size(20);
+
+    let middleware = Arc::new(
+        RateLimitMiddleware::builder()
+            .host("api.example.com", |host| {
+                host.route(|r| r.limit(1_000_000, Duration::from_secs(10)))
+                    .route(|r| r.path("/data").limit(500_000, Duration::from_secs(10)))
+            })
+            .build(),
+    );
+
+    let req = reqwest::Client::new()
+        .get("https://api.example.com/data")
+        .build()
+        .unwrap();
+
+    for num_tasks in [1, 2, 4, 8] {
+        group.bench_with_input(
+            BenchmarkId::new("tasks", num_tasks),
+            &num_tasks,
+            |b, &num_tasks| {
+                let rt = tokio::runtime::Builder::new_multi_thread()
+                    .worker_threads(num_tasks)
+                    .enable_time()
+                    .build()
+                    .unwrap();
+
+                b.iter(|| {
+                    rt.block_on(async {
+                        let mut handles = Vec::with_capacity(num_tasks);
+                        for _ in 0..num_tasks {
+                            let m = middleware.clone();
+                            let r = req.try_clone().unwrap();
+                            handles.push(tokio::spawn(async move {
+                                for _ in 0..100 {
+                                    m.check_and_apply_limits(&r).await.unwrap();
+                                }
+                                black_box(());
+                            }));
+                        }
+                        for h in handles {
+                            h.await.unwrap();
+                        }
+                    })
+                })
+            },
+        );
+    }
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_check_and_apply_limits,
     bench_route_matching,
     bench_stacked_limits,
+    bench_concurrent,
 );
 criterion_main!(benches);
