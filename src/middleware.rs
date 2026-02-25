@@ -14,6 +14,9 @@ use crate::error::RateLimitError;
 use crate::gcra::GcraState;
 use crate::types::{Route, ThrottleBehavior};
 
+/// Jitter adds up to 50% of the wait duration (denominator of the fraction).
+const JITTER_FRACTION_DENOM: u128 = 2;
+
 /// The rate limiting middleware.
 ///
 /// This middleware tracks rate limits and either delays or rejects requests
@@ -112,9 +115,10 @@ impl RateLimitMiddleware {
     ) -> Result<(), RateLimitError> {
         match route.on_limit {
             ThrottleBehavior::Delay => {
-                // Add jitter (0-50% of wait duration) to prevent thundering herd
+                // Add jitter to prevent thundering herd
                 let jitter_max_nanos =
-                    u64::try_from(wait_duration.as_nanos() / 2).unwrap_or(u64::MAX);
+                    u64::try_from(wait_duration.as_nanos() / JITTER_FRACTION_DENOM)
+                        .unwrap_or(u64::MAX);
                 let jitter_nanos = if jitter_max_nanos > 0 {
                     rand::rng().random_range(0..=jitter_max_nanos)
                 } else {

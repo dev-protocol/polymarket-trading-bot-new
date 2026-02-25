@@ -12,6 +12,12 @@ use std::time::{Duration, Instant};
 use wiremock::matchers::{any, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+fn create_client(middleware: RateLimitMiddleware) -> reqwest_middleware::ClientWithMiddleware {
+    ClientBuilder::new(reqwest::Client::new())
+        .with(middleware)
+        .build()
+}
+
 /// Helper to create a mock server with a simple OK response.
 async fn setup_mock_server() -> MockServer {
     let server = MockServer::start().await;
@@ -59,9 +65,7 @@ async fn test_error_on_rate_limit_exceeded() {
         })
         .build();
 
-    let client = ClientBuilder::new(reqwest::Client::new())
-        .with(middleware)
-        .build();
+    let client = create_client(middleware);
 
     let url = format!("{}/test", server.uri());
 
@@ -97,9 +101,7 @@ async fn test_error_includes_retry_duration() {
         })
         .build();
 
-    let client = ClientBuilder::new(reqwest::Client::new())
-        .with(middleware)
-        .build();
+    let client = create_client(middleware);
 
     let url = format!("{}/test", server.uri());
 
@@ -131,9 +133,7 @@ async fn test_delay_on_rate_limit_exceeded() {
         })
         .build();
 
-    let client = ClientBuilder::new(reqwest::Client::new())
-        .with(middleware)
-        .build();
+    let client = create_client(middleware);
 
     let url = format!("{}/test", server.uri());
 
@@ -182,9 +182,7 @@ async fn test_delay_does_not_lose_requests() {
         })
         .build();
 
-    let client = ClientBuilder::new(reqwest::Client::new())
-        .with(middleware)
-        .build();
+    let client = create_client(middleware);
 
     let url = format!("{}/counted", server.uri());
 
@@ -222,9 +220,7 @@ async fn test_different_routes_have_separate_limits() {
         })
         .build();
 
-    let client = ClientBuilder::new(reqwest::Client::new())
-        .with(middleware)
-        .build();
+    let client = create_client(middleware);
 
     // Exhaust /test limit
     client
@@ -266,9 +262,7 @@ async fn test_method_specific_limits() {
         })
         .build();
 
-    let client = ClientBuilder::new(reqwest::Client::new())
-        .with(middleware)
-        .build();
+    let client = create_client(middleware);
 
     let order_url = format!("{}/order", server.uri());
 
@@ -298,9 +292,7 @@ async fn test_unmatched_routes_not_limited() {
         })
         .build();
 
-    let client = ClientBuilder::new(reqwest::Client::new())
-        .with(middleware)
-        .build();
+    let client = create_client(middleware);
 
     // Root path should not be limited
     for _ in 0..10 {
@@ -328,9 +320,7 @@ async fn test_multiple_limits_all_must_pass() {
         })
         .build();
 
-    let client = ClientBuilder::new(reqwest::Client::new())
-        .with(middleware)
-        .build();
+    let client = create_client(middleware);
 
     let url = format!("{}/test", server.uri());
 
@@ -360,11 +350,7 @@ async fn test_concurrent_requests_respect_limit() {
         })
         .build();
 
-    let client = Arc::new(
-        ClientBuilder::new(reqwest::Client::new())
-            .with(middleware)
-            .build(),
-    );
+    let client = Arc::new(create_client(middleware));
 
     let url = format!("{}/test", server.uri());
 
@@ -403,12 +389,8 @@ async fn test_shared_state_across_clones() {
         .build();
 
     // Create two clients sharing the same middleware
-    let client1 = ClientBuilder::new(reqwest::Client::new())
-        .with(middleware.clone())
-        .build();
-    let client2 = ClientBuilder::new(reqwest::Client::new())
-        .with(middleware)
-        .build();
+    let client1 = create_client(middleware.clone());
+    let client2 = create_client(middleware);
 
     let url = format!("{}/test", server.uri());
 
@@ -445,9 +427,7 @@ async fn test_rate_limit_recovers_after_window() {
         })
         .build();
 
-    let client = ClientBuilder::new(reqwest::Client::new())
-        .with(middleware)
-        .build();
+    let client = create_client(middleware);
 
     let url = format!("{}/test", server.uri());
 
@@ -482,9 +462,7 @@ async fn test_very_high_burst_limit() {
         })
         .build();
 
-    let client = ClientBuilder::new(reqwest::Client::new())
-        .with(middleware)
-        .build();
+    let client = create_client(middleware);
 
     let url = format!("{}/test", server.uri());
 
@@ -507,9 +485,7 @@ async fn test_catch_all_route() {
         })
         .build();
 
-    let client = ClientBuilder::new(reqwest::Client::new())
-        .with(middleware)
-        .build();
+    let client = create_client(middleware);
 
     // Different paths share the same limit
     client
@@ -551,9 +527,7 @@ async fn test_host_matching_ignores_port() {
         })
         .build();
 
-    let client = ClientBuilder::new(reqwest::Client::new())
-        .with(middleware)
-        .build();
+    let client = create_client(middleware);
 
     // First request should match the host (port excluded) and succeed
     let resp = client.get(format!("{}/test", server.uri())).send().await;
@@ -578,9 +552,7 @@ async fn test_default_middleware_allows_all_requests() {
     // Default middleware has no routes - all requests should pass through
     let middleware = RateLimitMiddleware::default();
 
-    let client = ClientBuilder::new(reqwest::Client::new())
-        .with(middleware)
-        .build();
+    let client = create_client(middleware);
 
     let url = format!("{}/test", server.uri());
 
@@ -614,9 +586,7 @@ async fn test_path_matching_ignores_query_strings() {
         })
         .build();
 
-    let client = ClientBuilder::new(reqwest::Client::new())
-        .with(middleware)
-        .build();
+    let client = create_client(middleware);
 
     // Request with query string should match the path prefix
     let resp = client
@@ -663,9 +633,7 @@ async fn test_method_matching_put_patch_head_options() {
         })
         .build();
 
-    let client = ClientBuilder::new(reqwest::Client::new())
-        .with(middleware)
-        .build();
+    let client = create_client(middleware);
 
     let url = format!("{}/resource", server.uri());
 
@@ -713,9 +681,7 @@ async fn test_delay_includes_jitter() {
         .route(|r| r.limit(1, Duration::from_millis(200)))
         .build();
 
-    let client = ClientBuilder::new(reqwest::Client::new())
-        .with(middleware)
-        .build();
+    let client = create_client(middleware);
 
     let url = format!("{}/test", server.uri());
 

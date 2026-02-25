@@ -158,11 +158,10 @@ impl Route {
         req_path: &str,
     ) -> bool {
         // Check host
-        if let Some(ref host) = self.host {
-            match req_host {
-                Some(h) if h == host => {}
-                _ => return false,
-            }
+        if let Some(ref host) = self.host
+            && req_host != Some(host.as_str())
+        {
+            return false;
         }
 
         // Check method

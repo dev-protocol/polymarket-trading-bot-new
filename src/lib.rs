@@ -93,15 +93,19 @@ mod tests {
     use http::Method;
     use std::time::Duration;
 
-    #[test]
-    fn test_route_matching_all() {
-        let route = Route {
-            host: None,
-            method: None,
-            path_prefix: String::new(),
+    fn test_route(host: Option<&str>, method: Option<Method>, path: &str) -> Route {
+        Route {
+            host: host.map(String::from),
+            method,
+            path_prefix: path.to_string(),
             limits: vec![],
             on_limit: ThrottleBehavior::Delay,
-        };
+        }
+    }
+
+    #[test]
+    fn test_route_matching_all() {
+        let route = test_route(None, None, "");
 
         let req = reqwest::Client::new()
             .get("https://example.com/test")
@@ -113,13 +117,7 @@ mod tests {
 
     #[test]
     fn test_route_matching_host() {
-        let route = Route {
-            host: Some("api.example.com".to_string()),
-            method: None,
-            path_prefix: String::new(),
-            limits: vec![],
-            on_limit: ThrottleBehavior::Delay,
-        };
+        let route = test_route(Some("api.example.com"), None, "");
 
         let req_match = reqwest::Client::new()
             .get("https://api.example.com/test")
@@ -136,13 +134,7 @@ mod tests {
 
     #[test]
     fn test_route_matching_method() {
-        let route = Route {
-            host: None,
-            method: Some(Method::POST),
-            path_prefix: String::new(),
-            limits: vec![],
-            on_limit: ThrottleBehavior::Delay,
-        };
+        let route = test_route(None, Some(Method::POST), "");
 
         let req_match = reqwest::Client::new()
             .post("https://example.com/test")
@@ -159,13 +151,7 @@ mod tests {
 
     #[test]
     fn test_route_matching_path_prefix() {
-        let route = Route {
-            host: None,
-            method: None,
-            path_prefix: "/api/v1".to_string(),
-            limits: vec![],
-            on_limit: ThrottleBehavior::Delay,
-        };
+        let route = test_route(None, None, "/api/v1");
 
         let req_match = reqwest::Client::new()
             .get("https://example.com/api/v1/users")
@@ -182,13 +168,7 @@ mod tests {
 
     #[test]
     fn test_route_matching_path_segment_boundary() {
-        let route = Route {
-            host: None,
-            method: None,
-            path_prefix: "/order".to_string(),
-            limits: vec![],
-            on_limit: ThrottleBehavior::Delay,
-        };
+        let route = test_route(None, None, "/order");
 
         // Should match: exact, with trailing slash, with sub-path
         let req_exact = reqwest::Client::new()

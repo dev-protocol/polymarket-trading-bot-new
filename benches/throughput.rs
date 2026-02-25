@@ -4,6 +4,13 @@ use route_ratelimit::{RateLimitMiddleware, ThrottleBehavior};
 use std::sync::Arc;
 use std::time::Duration;
 
+fn single_thread_rt() -> tokio::runtime::Runtime {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .unwrap()
+}
+
 /// Benchmark the full check_and_apply_limits path with varying route counts.
 fn bench_check_and_apply_limits(c: &mut Criterion) {
     let mut group = c.benchmark_group("check_and_apply_limits");
@@ -30,10 +37,7 @@ fn bench_check_and_apply_limits(c: &mut Criterion) {
             BenchmarkId::new("routes", route_count),
             &route_count,
             |b, _| {
-                let rt = tokio::runtime::Builder::new_current_thread()
-                    .enable_time()
-                    .build()
-                    .unwrap();
+                let rt = single_thread_rt();
                 b.iter(|| {
                     rt.block_on(async { black_box(middleware.check_and_apply_limits(&req).await) })
                 })
@@ -120,10 +124,7 @@ fn bench_stacked_limits(c: &mut Criterion) {
             BenchmarkId::new("limits", limit_count),
             &limit_count,
             |b, _| {
-                let rt = tokio::runtime::Builder::new_current_thread()
-                    .enable_time()
-                    .build()
-                    .unwrap();
+                let rt = single_thread_rt();
                 b.iter(|| {
                     rt.block_on(async { black_box(middleware.check_and_apply_limits(&req).await) })
                 })

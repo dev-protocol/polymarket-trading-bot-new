@@ -142,35 +142,22 @@ impl RateLimitBuilder {
     /// Emit a warning if catch-all routes precede more specific routes.
     #[cfg(feature = "tracing")]
     fn warn_catch_all_route_order(&self) {
-        // Collect indices of all catch-all routes
-        let catch_all_indices: Vec<usize> = self
-            .routes
-            .iter()
-            .enumerate()
-            .filter(|(_, route)| route.is_catch_all())
-            .map(|(i, _)| i)
-            .collect();
-
-        // For each catch-all, warn about specific routes that follow it
-        for &catch_all_index in &catch_all_indices {
-            // Find the first specific route after this catch-all
-            if let Some((specific_index, _)) = self
-                .routes
-                .iter()
-                .enumerate()
-                .skip(catch_all_index + 1)
-                .find(|(_, route)| !route.is_catch_all())
-            {
+        let mut last_catch_all = None;
+        for (i, route) in self.routes.iter().enumerate() {
+            if route.is_catch_all() {
+                last_catch_all = Some(i);
+            } else if let Some(catch_all_index) = last_catch_all {
                 tracing::warn!(
                     catch_all_route_index = catch_all_index,
-                    specific_route_index = specific_index,
+                    specific_route_index = i,
                     "Catch-all route (index {}) precedes more specific route (index {}). \
                      All matching routes' limits are applied, so the catch-all will affect \
                      requests intended for the specific route. Consider reordering routes \
                      or using host-scoped builders.",
                     catch_all_index,
-                    specific_index
+                    i
                 );
+                last_catch_all = None;
             }
         }
     }
