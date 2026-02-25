@@ -152,6 +152,36 @@ Path matching uses **segment boundaries**, not simple prefix matching:
 | `/order` | `/order`, `/order/`, `/order/123` | `/orders`, `/order-test` |
 | `/api/v1` | `/api/v1/users`, `/api/v1/`   | `/api/v2`, `/api/v10` |
 
+## Performance
+
+The hot path is optimized for minimal overhead per request:
+
+```
+Request
+  │
+  ▼
+Extract host, method, path (once)
+  │
+  ▼
+┌─────────────────────────────┐
+│  For each matching route:   │◄── all matching routes apply
+│  check stacked limits via   │
+│  GCRA (lock-free atomic)    │
+└─────────┬───────────────────┘
+          │
+    ┌─────┴─────┐
+    │  Allowed?  │
+    ┌───┘       └───┐
+    ▼               ▼
+  Pass        Delay w/ jitter
+              or return error
+```
+
+- **Lock-free**: GCRA algorithm uses `AtomicU64` compare-exchange — no mutexes or shard locks
+- **Zero allocation on hot path**: all state pre-allocated at build time in a flat array, indexed by precomputed offsets
+- **Single URL parse**: host, method, and path extracted once before iterating routes
+- **Cold-path optimization**: rate-limited branch marked `#[cold]` to keep the happy path compact in instruction cache
+
 ## Optional Features
 
 ### Tracing Support
