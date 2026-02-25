@@ -18,6 +18,7 @@ pub(crate) struct GcraState {
 
 impl GcraState {
     /// Create a new GCRA state.
+    #[inline]
     pub fn new() -> Self {
         Self {
             tat_nanos: AtomicU64::new(0),
@@ -25,11 +26,13 @@ impl GcraState {
     }
 
     /// Get the current theoretical arrival time (TAT) in nanoseconds.
+    #[inline]
     pub fn tat(&self, ordering: Ordering) -> u64 {
         self.tat_nanos.load(ordering)
     }
 
     /// Try to acquire a token. Returns Ok(()) if allowed, or Err(wait_duration) if rate limited.
+    #[inline]
     pub fn try_acquire(
         &self,
         now_nanos: u64,

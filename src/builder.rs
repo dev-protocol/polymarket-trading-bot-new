@@ -113,9 +113,11 @@ impl RateLimitBuilder {
         #[cfg(feature = "tracing")]
         self.warn_catch_all_route_order();
 
+        let total_limits: usize = self.routes.iter().map(|r| r.limits.len()).sum();
+
         RateLimitMiddleware {
             routes: Arc::new(self.routes),
-            state: Arc::new(DashMap::new()),
+            state: Arc::new(DashMap::with_capacity(total_limits)),
             start_instant: Instant::now(),
         }
     }

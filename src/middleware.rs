@@ -80,21 +80,20 @@ impl RateLimitMiddleware {
         let now = self.now_nanos();
         self.state.retain(|key, gcra_state| {
             // Bounds check to handle edge cases
-            if key.route_index >= self.routes.len() {
+            if key.route_index() >= self.routes.len() {
                 return false;
             }
-            let route = &self.routes[key.route_index];
-            if key.limit_index >= route.limits.len() {
+            let route = &self.routes[key.route_index()];
+            if key.limit_index() >= route.limits.len() {
                 return false;
             }
 
-            let limit = &route.limits[key.limit_index];
-            let window_nanos = limit.window.as_nanos() as u64;
+            let limit = &route.limits[key.limit_index()];
             let tat = gcra_state.tat(Ordering::Acquire);
 
             // Keep if TAT is within 2x window of now (recently active)
             // An entry with TAT far in the past has fully recovered and can be removed
-            tat > now.saturating_sub(window_nanos.saturating_mul(2))
+            tat > now.saturating_sub(limit.window_nanos.saturating_mul(2))
         });
     }
 
@@ -106,7 +105,9 @@ impl RateLimitMiddleware {
         self.state.len()
     }
 
-    async fn check_and_apply_limits(&self, req: &Request) -> Result<(), RateLimitError> {
+    /// Check and apply all rate limits for a request.
+    #[doc(hidden)]
+    pub async fn check_and_apply_limits(&self, req: &Request) -> Result<(), RateLimitError> {
         'outer: loop {
             let now = self.now_nanos();
 
@@ -116,40 +117,39 @@ impl RateLimitMiddleware {
                 }
 
                 for (limit_index, limit) in route.limits.iter().enumerate() {
-                    let key = RouteKey {
-                        route_index,
-                        limit_index,
+                    let key = RouteKey::new(route_index, limit_index);
+
+                    let emission_interval_nanos = limit.emission_interval_nanos;
+                    let limit_nanos = limit.window_nanos;
+
+                    // Fast path: read lock only (allows concurrent readers on same shard)
+                    let result = if let Some(state) = self.state.get(&key) {
+                        state.try_acquire(now, emission_interval_nanos, limit_nanos)
+                    } else {
+                        // Cold path: first request for this route+limit, write lock needed
+                        let state =
+                            self.state.entry(key).or_insert_with(GcraState::new);
+                        state.try_acquire(now, emission_interval_nanos, limit_nanos)
                     };
 
-                    let emission_interval_nanos = limit.emission_interval().as_nanos() as u64;
-                    let limit_nanos = limit.window.as_nanos() as u64;
-
-                    // Get or create GCRA state for this route+limit
-                    let state = self.state.entry(key).or_insert_with(GcraState::new);
-
-                    match state.try_acquire(now, emission_interval_nanos, limit_nanos) {
-                        Ok(()) => {}
-                        Err(wait_duration) => {
-                            match route.on_limit {
-                                ThrottleBehavior::Delay => {
-                                    // Release the lock before sleeping
-                                    drop(state);
-                                    // Add jitter (0-50% of wait duration) to prevent thundering herd
-                                    let jitter_max_nanos = wait_duration.as_nanos() as u64 / 2;
-                                    let jitter_nanos = if jitter_max_nanos > 0 {
-                                        rand::rng().random_range(0..=jitter_max_nanos)
-                                    } else {
-                                        0
-                                    };
-                                    let sleep_duration = wait_duration
-                                        + std::time::Duration::from_nanos(jitter_nanos);
-                                    sleep(sleep_duration).await;
-                                    // After sleeping, restart the entire check with fresh timestamp
-                                    continue 'outer;
-                                }
-                                ThrottleBehavior::Error => {
-                                    return Err(RateLimitError::RateLimited(wait_duration));
-                                }
+                    if let Err(wait_duration) = result {
+                        match route.on_limit {
+                            ThrottleBehavior::Delay => {
+                                // Add jitter (0-50% of wait duration) to prevent thundering herd
+                                let jitter_max_nanos = wait_duration.as_nanos() as u64 / 2;
+                                let jitter_nanos = if jitter_max_nanos > 0 {
+                                    rand::rng().random_range(0..=jitter_max_nanos)
+                                } else {
+                                    0
+                                };
+                                let sleep_duration = wait_duration
+                                    + std::time::Duration::from_nanos(jitter_nanos);
+                                sleep(sleep_duration).await;
+                                // After sleeping, restart the entire check with fresh timestamp
+                                continue 'outer;
+                            }
+                            ThrottleBehavior::Error => {
+                                return Err(RateLimitError::RateLimited(wait_duration));
                             }
                         }
                     }

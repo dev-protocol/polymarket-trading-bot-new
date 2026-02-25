@@ -21,6 +21,10 @@ pub struct RateLimit {
     pub requests: u32,
     /// Time window for the rate limit.
     pub window: Duration,
+    /// Precomputed emission interval in nanoseconds (window / requests).
+    pub(crate) emission_interval_nanos: u64,
+    /// Precomputed window duration in nanoseconds.
+    pub(crate) window_nanos: u64,
 }
 
 impl RateLimit {
@@ -39,11 +43,18 @@ impl RateLimit {
             window.as_nanos() <= u64::MAX as u128,
             "window must not exceed u64::MAX nanoseconds (~585 years)"
         );
-        Self { requests, window }
+        let window_nanos = window.as_nanos() as u64;
+        let emission_interval_nanos = (window / requests).as_nanos() as u64;
+        Self {
+            requests,
+            window,
+            emission_interval_nanos,
+            window_nanos,
+        }
     }
 
     /// Calculate the emission interval (time between requests).
-    #[inline]
+    #[cfg(test)]
     pub(crate) fn emission_interval(&self) -> Duration {
         self.window / self.requests
     }
@@ -116,8 +127,26 @@ impl Route {
 }
 
 /// Unique key for a route's rate limit state.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct RouteKey {
-    pub route_index: usize,
-    pub limit_index: usize,
+///
+/// Packed as a single `u64`: upper 32 bits = route_index, lower 32 bits = limit_index.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct RouteKey(u64);
+
+impl RouteKey {
+    #[inline]
+    pub fn new(route_index: usize, limit_index: usize) -> Self {
+        debug_assert!(route_index <= u32::MAX as usize);
+        debug_assert!(limit_index <= u32::MAX as usize);
+        Self((route_index as u64) << 32 | (limit_index as u64))
+    }
+
+    #[inline]
+    pub fn route_index(self) -> usize {
+        (self.0 >> 32) as usize
+    }
+
+    #[inline]
+    pub fn limit_index(self) -> usize {
+        (self.0 & 0xFFFF_FFFF) as usize
+    }
 }
